@@ -6,6 +6,7 @@ package health
 import (
 	"context"
 	"fmt"
+	"net"
 	"sync"
 	"time"
 )
@@ -240,28 +241,36 @@ func StaticCheck(err error) CheckFunc {
 	}
 }
 
-// TCPCheck returns a CheckFunc that verifies TCP connectivity to the
-// given address.
+// TCPCheck returns a CheckFunc that performs a REAL net.DialContext
+// TCP connectivity probe to the given address.
+//
+// §11.4 / CONST-035 — Per round-22 audit, the previous implementation
+// was a permanent-failure placeholder disguised as a usable export:
+// every registered TCPCheck reported the dependency permanently
+// unhealthy, silently corrupting health-aggregator signals. The
+// "dependency-free" rationale was a §11.4 PASS-bluff — refusing to
+// import the only stdlib package that does TCP probes makes the
+// function useless. stdlib `net` is not a meaningful "dependency".
+//
+// Real implementation now: net.Dialer.DialContext respects the
+// context deadline and returns the actual TCP error on failure (or
+// nil on success after closing the connection).
 func TCPCheck(address string) CheckFunc {
 	return func(ctx context.Context) error {
-		// Use context deadline if available
 		deadline, ok := ctx.Deadline()
 		if !ok {
 			deadline = time.Now().Add(5 * time.Second)
 		}
 		timeout := time.Until(deadline)
 		if timeout <= 0 {
-			return fmt.Errorf("context already expired for %s", address)
+			return fmt.Errorf("TCPCheck %s: context already expired", address)
 		}
-
-		// We intentionally do NOT import net here to keep the
-		// health package dependency-free. Callers should use
-		// net.DialTimeout in their own CheckFunc.
-		// This function serves as documentation of the pattern.
-		return fmt.Errorf(
-			"TCPCheck is a placeholder; use net.DialTimeout(%q, %v) "+
-				"in your own CheckFunc",
-			address, timeout,
-		)
+		d := net.Dialer{Timeout: timeout}
+		conn, err := d.DialContext(ctx, "tcp", address)
+		if err != nil {
+			return fmt.Errorf("TCPCheck %s: %w", address, err)
+		}
+		_ = conn.Close()
+		return nil
 	}
 }

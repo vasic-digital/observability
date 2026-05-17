@@ -283,33 +283,38 @@ func TestAggregator_ImplementsChecker(t *testing.T) {
 	var _ Checker = &Aggregator{}
 }
 
+// TestTCPCheck: per round-22 §11.4 fix (commit pending), TCPCheck
+// now performs a REAL net.DialContext probe instead of returning a
+// "placeholder" error. The previous test asserted the placeholder
+// message — CERTIFYING the bluff per CONST-035 §11.4.4. Tightened
+// to assert real-probe semantics:
+//   - unreachable address (localhost:* with no listener) → error
+//     wrapping the dial failure, error message contains the address
+//   - expired context → "context already expired" (unchanged short-circuit)
 func TestTCPCheck(t *testing.T) {
 	tests := []struct {
 		name        string
 		address     string
 		ctx         func() context.Context
-		expectError bool
 		errorMatch  string
 	}{
 		{
-			name:    "with deadline - returns placeholder error",
-			address: "localhost:5432",
+			name:    "with deadline - real dial fails on unbound port",
+			address: "127.0.0.1:1", // port 1 is reserved; refusal expected
 			ctx: func() context.Context {
-				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 				t.Cleanup(cancel)
 				return ctx
 			},
-			expectError: true,
-			errorMatch:  "TCPCheck is a placeholder",
+			errorMatch: "127.0.0.1:1",
 		},
 		{
-			name:    "without deadline - uses default 5s timeout",
-			address: "localhost:6379",
+			name:    "without deadline - default 5s timeout still errors on unbound port",
+			address: "127.0.0.1:1",
 			ctx: func() context.Context {
 				return context.Background()
 			},
-			expectError: true,
-			errorMatch:  "TCPCheck is a placeholder",
+			errorMatch: "127.0.0.1:1",
 		},
 		{
 			name:    "with expired context",
@@ -322,19 +327,17 @@ func TestTCPCheck(t *testing.T) {
 				t.Cleanup(cancel)
 				return ctx
 			},
-			expectError: true,
-			errorMatch:  "context already expired",
+			errorMatch: "context already expired",
 		},
 		{
 			name:    "error includes address",
-			address: "db.example.com:3306",
+			address: "127.0.0.1:1",
 			ctx: func() context.Context {
-				ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 				t.Cleanup(cancel)
 				return ctx
 			},
-			expectError: true,
-			errorMatch:  "db.example.com:3306",
+			errorMatch: "127.0.0.1:1",
 		},
 	}
 
@@ -342,13 +345,8 @@ func TestTCPCheck(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			check := TCPCheck(tt.address)
 			err := check(tt.ctx())
-
-			if tt.expectError {
-				require.Error(t, err)
-				assert.Contains(t, err.Error(), tt.errorMatch)
-			} else {
-				assert.NoError(t, err)
-			}
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.errorMatch)
 		})
 	}
 }
