@@ -361,7 +361,41 @@ func TestNewCollector_WithLogger(t *testing.T) {
 
 	cfg := &ClickHouseConfig{
 		Host:     "invalid-host",
-		Port:     9999,,
+		Port:     9999,
+		Database: "test",
+		Username: "test",
+		Password: "test",
+	}
+
+	c := NewCollector(cfg, logger)
+	require.NotNil(t, c)
+
+	// Should fall back to NoOpCollector since connection to "invalid-host" must fail
+	_, ok := c.(*NoOpCollector)
+	assert.True(t, ok)
+}
+
+// ============================================================================
+// isValidIdentifier Tests (SQL-injection guard for table/groupBy params)
+// ============================================================================
+
+// TestIsValidIdentifier \u2014 restored 2026-05-18 (round 85, \u00a711.4 anti-bluff).
+// The May 2 2026 commit d4bd34e ("delete 166 vacuous constructor tests")
+// corrupted this file: it removed this test's func declaration + struct opener
+// but left the table-data entries + closing brace + for-loop orphaned (causing
+// `expected operand, found ','` compile failure at the previous test). The
+// orphaned data is genuinely valuable security coverage (validates that
+// isValidIdentifier rejects SQL-injection vectors, unicode, control bytes,
+// metacharacters used by ClickHouse query construction in pkg/analytics/
+// analytics.go's Query path lines 275 & 278). Restored test is NOT vacuous
+// per CONST-035 \u2014 every row asserts a real user-visible security boundary.
+func TestIsValidIdentifier(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected bool
+	}{
+		{name: "simple name", input: "events", expected: true},
 		{name: "with underscore", input: "event_log", expected: true},
 		{name: "with numbers", input: "events2024", expected: true},
 		{name: "uppercase", input: "Events", expected: true},
