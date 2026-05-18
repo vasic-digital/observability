@@ -1,0 +1,16 @@
+# Observability i18n bundle — English (default).
+#
+# Keys are prefixed `observability_` to avoid collision with sibling
+# submodule catalogues that a consuming project (e.g. HelixCode) may
+# merge into a single bundle store. Per CONST-046 the consuming
+# project's project-side translator is the authority that fans out
+# locale overrides; this bundle is the canonical English source.
+#
+# Round-121 §11.4 — kickoff scope: PrometheusCollector auto-created
+# metric help-text (counter, histogram, gauge). Subsequent rounds widen
+# coverage to logging field templates, health-aggregator status text,
+# analytics adapter error messages.
+
+observability_metrics_auto_created_counter: "Auto-created counter: {{name}}"
+observability_metrics_auto_created_histogram: "Auto-created histogram: {{name}}"
+observability_metrics_auto_created_gauge: "Auto-created gauge: {{name}}"

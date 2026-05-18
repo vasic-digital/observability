@@ -7,6 +7,8 @@ import (
 	"sync"
 	"time"
 
+	"digital.vasic.observability/pkg/i18n"
+
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -54,6 +56,13 @@ type PrometheusCollector struct {
 	gauges     map[string]*prometheus.GaugeVec
 	registerer prometheus.Registerer
 
+	// translator is the i18n seam for auto-created metric help text.
+	// Defaults to NoopTranslator (key-verbatim passthrough) so legacy
+	// English fallback is preserved unless an embedder explicitly wires
+	// a project-side translator via SetTranslator. Per CONST-046 +
+	// CONST-051(B): submodule MUST NOT reach into any parent project.
+	translator i18n.Translator
+
 	// testHookBeforeLock is called between RUnlock and Lock in getOrCreate* methods.
 	// This is only for testing the double-check locking pattern. It is nil in production.
 	testHookBeforeLock func(name string)
@@ -76,7 +85,49 @@ func NewPrometheusCollector(config *PrometheusConfig) *PrometheusCollector {
 		histograms: make(map[string]*prometheus.HistogramVec),
 		gauges:     make(map[string]*prometheus.GaugeVec),
 		registerer: registerer,
+		translator: i18n.NoopTranslator{},
 	}
+}
+
+// SetTranslator wires the i18n translator used to render auto-created
+// metric help-text strings. Passing nil is a no-op (the collector
+// continues to use the NoopTranslator default). Per CONST-046 the
+// consuming project injects its locale-aware translator; per
+// CONST-051(B) the Observability submodule does not reach into the
+// parent for a default.
+func (c *PrometheusCollector) SetTranslator(t i18n.Translator) {
+	if t == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.translator = t
+}
+
+// tr returns the active translator, defaulting to NoopTranslator. The
+// double-checked-locking pattern in getOrCreate* methods relies on
+// this method being safe under read-lock.
+func (c *PrometheusCollector) tr() i18n.Translator {
+	if c.translator == nil {
+		return i18n.NoopTranslator{}
+	}
+	return c.translator
+}
+
+// renderHelp is the centralised i18n seam for auto-created metric
+// help-text strings. It is invoked from getOrCreateCounter /
+// getOrCreateHistogram / getOrCreateGauge. NoopTranslator returns
+// the key verbatim; the fallback parameter preserves the legacy
+// English shape ("Auto-created counter: name") for embedders that
+// have not wired a translator. Per CONST-046 user-facing strings
+// MUST go through this seam; per CONST-035 the legacy fallback
+// keeps prior runtime assertions valid.
+func (c *PrometheusCollector) renderHelp(key string, params map[string]any, fallback string) string {
+	out := c.tr().T(key, params)
+	if out == key {
+		return fallback
+	}
+	return out
 }
 
 // RegisterCounter pre-registers a counter with known label names.
@@ -253,7 +304,11 @@ func (c *PrometheusCollector) getOrCreateCounter(
 		Namespace: c.config.Namespace,
 		Subsystem: c.config.Subsystem,
 		Name:      name,
-		Help:      "Auto-created counter: " + name,
+		Help: c.renderHelp(
+			"observability_metrics_auto_created_counter",
+			map[string]any{"name": name},
+			"Auto-created counter: "+name,
+		),
 	}, labelNames)
 
 	if err := c.registerer.Register(cv); err != nil {
@@ -289,8 +344,12 @@ func (c *PrometheusCollector) getOrCreateHistogram(
 		Namespace: c.config.Namespace,
 		Subsystem: c.config.Subsystem,
 		Name:      name,
-		Help:      "Auto-created histogram: " + name,
-		Buckets:   c.config.DefaultBuckets,
+		Help: c.renderHelp(
+			"observability_metrics_auto_created_histogram",
+			map[string]any{"name": name},
+			"Auto-created histogram: "+name,
+		),
+		Buckets: c.config.DefaultBuckets,
 	}, labelNames)
 
 	if err := c.registerer.Register(hv); err != nil {
@@ -326,7 +385,11 @@ func (c *PrometheusCollector) getOrCreateGauge(
 		Namespace: c.config.Namespace,
 		Subsystem: c.config.Subsystem,
 		Name:      name,
-		Help:      "Auto-created gauge: " + name,
+		Help: c.renderHelp(
+			"observability_metrics_auto_created_gauge",
+			map[string]any{"name": name},
+			"Auto-created gauge: "+name,
+		),
 	}, labelNames)
 
 	if err := c.registerer.Register(gv); err != nil {
