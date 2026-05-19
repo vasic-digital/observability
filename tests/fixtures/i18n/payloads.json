@@ -1,0 +1,57 @@
+{
+  "_comment": "Round-252 bilingual fixtures for Observability. Used by observability_describe_challenge.sh + challenges/runner/main.go to verify UTF-8 / non-ASCII text round-trips losslessly through every observability primitive (trace span attributes, metric labels, log message fields, health-check component names, analytics event properties). CONST-046 alignment (no hardcoded English-only assumption).",
+  "inputs": [
+    {
+      "locale": "en",
+      "span_name": "observe.batch.process",
+      "log_message": "Hello, world! Operation completed successfully.",
+      "correlation_id": "req-en-001",
+      "component": "database-primary",
+      "event_name": "user.action.completed",
+      "expected_min_len": 8
+    },
+    {
+      "locale": "sr",
+      "span_name": "obrada.serija.izvrsi",
+      "log_message": "Здраво, свете! Операција је успешно завршена.",
+      "correlation_id": "zahtev-sr-002",
+      "component": "база-података-главна",
+      "event_name": "korisnik.akcija.završena",
+      "expected_min_len": 8
+    },
+    {
+      "locale": "ja",
+      "span_name": "観察.バッチ.処理",
+      "log_message": "こんにちは、世界！操作が正常に完了しました。",
+      "correlation_id": "リクエスト-ja-003",
+      "component": "データベース・プライマリ",
+      "event_name": "ユーザー.アクション.完了",
+      "expected_min_len": 8
+    },
+    {
+      "locale": "ar",
+      "span_name": "مراقبة.دفعة.معالجة",
+      "log_message": "مرحبا بالعالم! اكتملت العملية بنجاح.",
+      "correlation_id": "طلب-ar-004",
+      "component": "قاعدة-البيانات-الرئيسية",
+      "event_name": "المستخدم.الإجراء.مكتمل",
+      "expected_min_len": 8
+    },
+    {
+      "locale": "zh-CN",
+      "span_name": "观察.批处理.执行",
+      "log_message": "你好，世界！操作已成功完成。",
+      "correlation_id": "请求-zh-005",
+      "component": "数据库-主",
+      "event_name": "用户.操作.已完成",
+      "expected_min_len": 8
+    }
+  ],
+  "expected_invariants": {
+    "byte_preservation": "Non-ASCII bytes in span names, log messages, correlation IDs, component names, and event properties MUST be preserved verbatim through the production code path (no normalization, no transliteration, no replacement).",
+    "metric_label_safety": "Non-ASCII text routed through metric label values MUST NOT panic Prometheus label validation; label-key namespacing is the safe path.",
+    "correlation_id_propagation": "logging.ContextWithCorrelationID + logging.CorrelationIDFromContext MUST round-trip the non-ASCII ID via context.Context unchanged.",
+    "health_component_name_preservation": "health.Aggregator.Register stores the component name verbatim; the Report MUST surface the same bytes on Check().",
+    "analytics_event_property_preservation": "analytics.Collector.Track MUST accept non-ASCII property values without rejecting the event (NoOp + ClickHouse collector contracts both)."
+  }
+}
